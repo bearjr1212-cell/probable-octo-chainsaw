@@ -37,5 +37,11 @@ setup(
             extra_compile_args=STRICT_IEEE_FLAGS,
             optional=True,
         ),
+        Extension(
+            "blueprint23d._native.cdt",
+            sources=["src/blueprint23d/_native/cdt.c"],
+            extra_compile_args=STRICT_IEEE_FLAGS,
+            optional=True,
+        ),
     ],
 )
