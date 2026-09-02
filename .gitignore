@@ -11,3 +11,5 @@ dist/
 *.glb
 *.ply
 !tests/fixtures/**
+*.so
+*.o
