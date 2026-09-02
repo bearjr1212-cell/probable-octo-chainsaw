@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "blueprint23d"
+version = "0.1.0"
+description = "Turn 2D blueprints (DXF/SVG/raster) into 3D printable/machinable parts"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+dependencies = [
+    "ezdxf>=1.1",
+    "svgelements>=1.9",
+    "opencv-python-headless>=4.8",
+    "numpy>=1.24",
+    "shapely>=2.0",
+    "trimesh>=4.0",
+    "manifold3d>=2.5",
+    "scipy>=1.10",
+    "networkx>=3.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+[project.scripts]
+blueprint23d = "blueprint23d.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

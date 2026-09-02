@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+*.egg-info/
+.venv/
+.venv-test/
+build/
+dist/
+.pytest_cache/
+*.stl
+*.obj
+*.glb
+*.ply
+!tests/fixtures/**
