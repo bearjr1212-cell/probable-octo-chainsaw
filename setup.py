@@ -43,5 +43,11 @@ setup(
             extra_compile_args=STRICT_IEEE_FLAGS,
             optional=True,
         ),
+        Extension(
+            "blueprint23d._native.fitkernels",
+            sources=["src/blueprint23d/_native/fitkernels.c"],
+            extra_compile_args=STRICT_IEEE_FLAGS,
+            optional=True,
+        ),
     ],
 )
