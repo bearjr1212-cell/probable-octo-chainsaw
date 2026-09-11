@@ -131,6 +131,15 @@ class Curve2D(ABC):
     def deviation_certificate(self, tolerance: float = DEFAULT_CHORD_TOLERANCE) -> DeviationCertificate:
         """The proven deviation bound for :meth:`tessellate` at this tolerance."""
 
+    def subcurve(self, t0: float, t1: float) -> "Curve2D":
+        """The portion between two parameters, exactly.
+
+        Trimming is how clipping stays exact: a clipped arc is still an arc
+        with the same centre and radius, not a polyline that happens to
+        follow one.
+        """
+        raise NotImplementedError(f"{type(self).__name__} cannot be trimmed exactly")
+
     @property
     def start(self) -> Point2:
         return self.point(0.0)
@@ -181,6 +190,9 @@ class Line2D(Curve2D):
 
     def reverse(self) -> "Line2D":
         return Line2D(self.p1, self.p0)
+
+    def subcurve(self, t0: float, t1: float) -> "Line2D":
+        return Line2D(self.point(t0), self.point(t1))
 
     def tessellate(self, tolerance: float = DEFAULT_CHORD_TOLERANCE) -> List[Point2]:
         return [self.p0, self.p1]
@@ -282,6 +294,22 @@ class Arc2D(Curve2D):
 
     def reverse(self) -> "Arc2D":
         return Arc2D(self.center, self.radius, self.end_angle, self.start_angle, not self.ccw)
+
+    def subcurve(self, t0: float, t1: float) -> "Arc2D":
+        """The portion of the arc between two parameters, still an exact arc.
+
+        Trimming an arc must not turn it into anything else: the centre and
+        radius are carried across untouched so a clipped hole is still a
+        hole of the same nominal size.
+        """
+        sweep = self.sweep
+        return Arc2D(
+            self.center,
+            self.radius,
+            self.start_angle + t0 * sweep,
+            self.start_angle + t1 * sweep,
+            ccw=(sweep >= 0.0) if t1 >= t0 else (sweep < 0.0),
+        )
 
     def max_angular_step(self, tolerance: float) -> float:
         """Largest angular step whose chord stays within ``tolerance``.
@@ -431,6 +459,17 @@ class EllipseArc2D(Curve2D):
     def reverse(self) -> "EllipseArc2D":
         return EllipseArc2D(self.center, self.major, self.ratio, self.end_param, self.start_param, not self.ccw)
 
+    def subcurve(self, t0: float, t1: float) -> "EllipseArc2D":
+        sweep = self.sweep
+        return EllipseArc2D(
+            self.center,
+            self.major,
+            self.ratio,
+            self.start_param + t0 * sweep,
+            self.start_param + t1 * sweep,
+            ccw=(sweep >= 0.0) if t1 >= t0 else (sweep < 0.0),
+        )
+
     def segment_count(self, tolerance: float) -> int:
         """From the linear-interpolation error bound.
 
@@ -554,6 +593,17 @@ class BezierCurve2D(Curve2D):
             right.append(work[n - r - 1])
         right.reverse()
         return (_from_homogeneous(left), _from_homogeneous(right))
+
+    def subcurve(self, t0: float, t1: float) -> "BezierCurve2D":
+        """Exact trim by two de Casteljau splits -- same curve, new control net."""
+        if t0 > t1:
+            return self.subcurve(t1, t0).reverse()
+        _, right = self.subdivide(t0) if t0 > 0.0 else (None, self)
+        if t1 >= 1.0:
+            return right
+        span = (t1 - t0) / (1.0 - t0) if t0 < 1.0 else 0.0
+        left, _ = right.subdivide(span)
+        return left
 
     def bounds(self) -> Tuple[float, float, float, float]:
         """Convex-hull box.
