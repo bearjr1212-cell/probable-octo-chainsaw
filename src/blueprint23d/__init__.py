@@ -33,6 +33,15 @@ from .curves import (
 # Deliberately not re-exporting ``audit.audit`` at the package root: the
 # name would shadow the ``blueprint23d.audit`` submodule itself.
 from .audit import Finding, audit_drawing
+from .certificates import (
+    Certificate,
+    FeatureCertificate,
+    Measurement,
+    certify_drawing,
+    certify_face,
+    drawing_fingerprint,
+    face_fingerprint,
+)
 from .diagnostics import Code, Defect, Report, Severity
 from .exact import BACKEND as PREDICATE_BACKEND
 from .loaders import load_face, load_faces
@@ -87,6 +96,14 @@ __all__ = [
     "infer_from_dxf",
     "audit_drawing",
     "Finding",
+    # certificates and determinism
+    "certify_drawing",
+    "certify_face",
+    "Certificate",
+    "FeatureCertificate",
+    "Measurement",
+    "face_fingerprint",
+    "drawing_fingerprint",
     # revision comparison
     "diff_drawings",
     "diff_faces",

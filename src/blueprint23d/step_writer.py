@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import datetime
 import math
+import os
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple, Union
 
@@ -108,15 +109,43 @@ def _perpendicular(axis: Point3) -> Point3:
     return _normalize(cross)
 
 
+def build_timestamp() -> str:
+    """The ``FILE_NAME`` timestamp, honouring ``SOURCE_DATE_EPOCH``.
+
+    The timestamp is the only part of a STEP file that is not a function of
+    the geometry, and so the only thing standing between this writer and
+    byte-reproducible output. Setting ``SOURCE_DATE_EPOCH`` -- the
+    reproducible-builds convention -- pins it, which lets a build system
+    compare two runs by hash instead of by parsing, and lets a shop prove
+    that the file it is cutting is the file that was signed off.
+    """
+    epoch = os.environ.get("SOURCE_DATE_EPOCH")
+    if epoch:
+        try:
+            when = datetime.datetime.fromtimestamp(int(epoch), datetime.timezone.utc)
+        except (ValueError, OverflowError, OSError):
+            when = datetime.datetime.now(datetime.timezone.utc)
+    else:
+        when = datetime.datetime.now(datetime.timezone.utc)
+    return when.strftime("%Y-%m-%dT%H:%M:%S")
+
+
 class StepWriter:
     """Accumulates STEP entities and renders a complete Part 21 file."""
 
-    def __init__(self, name: str = "part", units: str = "MM", uncertainty: float = 1e-7):
+    def __init__(
+        self,
+        name: str = "part",
+        units: str = "MM",
+        uncertainty: float = 1e-7,
+        timestamp: Optional[str] = None,
+    ):
         if units.upper() not in SI_LENGTH_UNITS:
             raise ValueError(f"unsupported unit {units!r}; expected one of {sorted(SI_LENGTH_UNITS)}")
         self.name = name
         self.units = units.upper()
         self.uncertainty = uncertainty
+        self.timestamp = timestamp
         self._lines: List[str] = []
         self._next_id = 1
         # Identical geometry is emitted once and shared; CAD files are
@@ -371,7 +400,7 @@ class StepWriter:
         product_shape = self.add(f"PRODUCT_DEFINITION_SHAPE('','',#{definition})")
         self.add(f"SHAPE_DEFINITION_REPRESENTATION(#{product_shape},#{shape_rep})")
 
-        timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+        timestamp = self.timestamp or build_timestamp()
         header = (
             "ISO-10303-21;\n"
             "HEADER;\n"
@@ -391,10 +420,21 @@ def write_step(
     name: Optional[str] = None,
     units: str = "MM",
     uncertainty: float = 1e-7,
+    timestamp: Optional[str] = None,
 ) -> Path:
-    """Write ``solid`` to ``path`` as a STEP AP214 part file."""
+    """Write ``solid`` to ``path`` as a STEP AP214 part file.
+
+    Pass ``timestamp`` (or set ``SOURCE_DATE_EPOCH``) to make the output
+    byte-for-byte reproducible; everything else in the file is a function of
+    the geometry alone.
+    """
     path = Path(path)
-    writer = StepWriter(name=name or solid.name, units=units, uncertainty=uncertainty)
+    writer = StepWriter(
+        name=name or solid.name,
+        units=units,
+        uncertainty=uncertainty,
+        timestamp=timestamp,
+    )
     text = writer.render(solid)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text)

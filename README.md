@@ -333,6 +333,56 @@ revB → revC
   hole (60, 45)                                                       unchanged
 ```
 
+**Certificates** (`certificates.py`) answer the question every number on
+the screen dodges: what is it worth? `radius 6.34982` says a number and
+silently claims five decimals' worth of confidence in it. Read from a DXF
+that claim is true. Recovered from a scan it is usually not, and the two
+look identical.
+
+So every reported quantity carries its value, how it was obtained, and one
+of three kinds of statement — deliberately never mixed:
+
+| | meaning | example |
+|---|---|---|
+| **exact** | the file said so, and nothing lost it | a DXF arc's radius; a polygon's area |
+| **bounded** | differs from the truth by at most a *proven* amount | `r(1 − cos(Δ/2))` on a tessellated arc |
+| **estimated** | uncertainty from a noise model, never called a bound | a radius fitted to pixels |
+
+The uncertainty on a fitted radius is propagated through the sagitta
+relation. With chord `c` and sagitta `s`, `r = c²/8s + s/2`, so
+`dr/ds = 1/2 − c²/8s²`, and the sagitta — an average over `N` points —
+is itself uncertain by about `σ/√N`:
+
+```
+σ_r ≈ |1/2 − c²/(8s²)| · σ / √N
+```
+
+This is the formula that matters, because it **diverges as s → 0**. Points
+can sit on a nearly-straight arc to a thousandth of a pixel while its
+radius is meaningless, and a tool reporting only the residual will happily
+certify `r = 3000` on a straight edge.
+
+The systematic extraction bias (~⅓ px, inward) is reported as its own
+term, never folded into the standard errors. Averaging more points drives
+noise down as `1/√N` and does nothing whatever to a bias, so on a 10,000
+point contour the residual is negligible and the bias is the entire error
+— exactly when combining them would mislead most.
+
+Confidence is never a free-floating score. It is the fraction of a
+**stated tolerance** the uncertainty leaves unspent, so "92% confident"
+means "the uncertainty is 8% of what you asked for", and a radius fine for
+a plasma table is correctly not fine for a reamed bore. Area is compared
+against area, never against a length tolerance.
+
+**Determinism.** Two runs on one input must produce the same part, and
+provably so. `face_fingerprint` is a SHA-256 over the exact coordinates —
+canonicalised over where a loop starts, which way it runs, and a circle's
+starting angle, and over nothing else, so one ulp of difference changes
+the hash. Set `SOURCE_DATE_EPOCH` and the emitted STEP is byte-identical
+between runs, because the header timestamp is the only part of the file
+that is not a function of the geometry. A test runs the pipeline in two
+fresh interpreters under different `PYTHONHASHSEED` values and compares.
+
 **DWG** input (`parsers/dwg.py`) goes through LibreDWG's `dwg2dxf` or the
 ODA File Converter, whichever is on `PATH`. The converter is *invoked*, not
 linked — the GPL boundary is a process boundary, and the module docstring
@@ -372,6 +422,8 @@ blueprint23d check     --input FILE [--layer NAME] [--json] [--no-audit] [-v]
 
 blueprint23d diff      --before FILE --after FILE [--layer NAME] [--json]
                        [--revision-before R] [--revision-after R] [--changes-only]
+
+blueprint23d certify   --input FILE [--depth D] [--tolerance T] [--json] [-v]
 ```
 
 `inspect` reports curve types and radii, whether each area came from the
@@ -395,7 +447,10 @@ customer.dxf: NOT CUTTABLE AS SUPPLIED
           measures 12.6 (off by -0.1)  at (27.298, 32.298) layer 0 entity #8C
 ```
 
-`--json` on either gives the same content as a machine-readable report.
+`certify` prints what every number is worth and the part's fingerprint,
+exiting `2` if any feature could not be resolved above the noise.
+
+`--json` on any of them gives the same content as a machine-readable report.
 
 ## Library
 
@@ -445,6 +500,7 @@ if result.solid:                   # present only on the exact path
 | `annotations.py` | dimension entities and their overridden text |
 | `audit.py` | the drawing checked against its own geometry |
 | `revisions.py` | feature-by-feature comparison of two revisions |
+| `certificates.py` | what each number is worth; fingerprints; determinism |
 
 ## Development
 
@@ -456,7 +512,7 @@ pip install -e ".[dev,occt]"   # adds the OpenCASCADE cross-validation
 pytest
 ```
 
-321 tests, 14 of which need OpenCASCADE and skip without it. They are
+359 tests, 14 of which need OpenCASCADE and skip without it. They are
 written to check *exactness and conservation* rather than appearance:
 predicate signs against rational ground truth, measured deviation against
 proven bounds, triangulated area against analytic area, recovered radii

@@ -242,3 +242,23 @@ def test_diff_json_carries_both_the_changes_and_the_report(tmp_path, capsys):
 def test_diff_reports_an_unreadable_file_as_a_failure(tmp_path, capsys):
     assert main(["diff", "--before", str(tmp_path / "a.dxf"),
                  "--after", str(tmp_path / "b.dxf")]) == 1
+
+
+def test_certify_reports_a_vector_part_as_exact(tmp_path, capsys):
+    path = qa_plate(tmp_path, "cert.dxf")
+    assert main(["certify", "--input", str(path), "--depth", "8"]) == 0
+    out = capsys.readouterr().out
+    assert "[vector]" in out
+    assert "exact throughout" in out
+    assert "fingerprint" in out
+
+
+def test_certify_json_carries_the_fingerprint_and_every_basis(tmp_path, capsys):
+    import json
+
+    path = qa_plate(tmp_path, "certjson.dxf")
+    assert main(["certify", "--input", str(path), "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert len(payload["fingerprint"]) == 64
+    assert payload["exact"] is True
+    assert {m["basis"] for m in payload["measurements"]} <= {"exact", "bounded", "estimated"}

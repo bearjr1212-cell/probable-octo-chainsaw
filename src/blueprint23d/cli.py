@@ -287,6 +287,30 @@ def cmd_diff(args: argparse.Namespace) -> int:
     return 0 if diff.identical else DIFFERENCES_FOUND
 
 
+def cmd_certify(args: argparse.Namespace) -> int:
+    """What every reported number is worth, and the fingerprint of the part."""
+    from . import certificates
+
+    certificate = certificates.certify_drawing(
+        args.input,
+        layer=args.layer,
+        tolerance=args.tolerance,
+        depth=args.depth,
+        scale=args.scale,
+        invert=args.invert,
+        fit_tolerance=args.fit_tolerance,
+    )
+
+    if args.json:
+        print(certificate.to_json())
+    else:
+        print(certificate.describe(limit=None if args.verbose else 12))
+
+    if certificate.unresolvable:
+        return NOT_CUTTABLE
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="blueprint23d",
@@ -358,6 +382,20 @@ def build_parser() -> argparse.ArgumentParser:
                         help="Hide features that did not change")
     p_diff.add_argument("--json", action="store_true", help="Machine-readable report")
     p_diff.set_defaults(func=cmd_diff)
+
+    p_certify = sub.add_parser(
+        "certify", help="What every reported number is worth, and the part's fingerprint"
+    )
+    p_certify.add_argument("--input", required=True, help="Blueprint file")
+    add_input_args(p_certify)
+    p_certify.add_argument("--depth", type=float, default=None,
+                           help="Extrusion depth, to certify the volume as well")
+    p_certify.add_argument("--tolerance", type=float, default=1e-3,
+                           help="Tolerance that confidence is measured against (default 1e-3)")
+    p_certify.add_argument("--json", action="store_true", help="Machine-readable certificate")
+    p_certify.add_argument("--verbose", "-v", action="store_true",
+                           help="Certify every feature, not just the first twelve")
+    p_certify.set_defaults(func=cmd_certify)
 
     return parser
 

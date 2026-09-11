@@ -63,7 +63,10 @@ def load_faces(
         return faces, open_chains
 
     if extension in RASTER_EXTENSIONS:
-        return _load_raster_faces(path, scale=scale, invert=invert, fit_tolerance=fit_tolerance), []
+        faces, _reports = _load_raster_faces(
+            path, scale=scale, invert=invert, fit_tolerance=fit_tolerance
+        )
+        return faces, []
 
     raise ValueError(
         f"unrecognized blueprint format '{extension}' for {path} "
@@ -93,18 +96,40 @@ def load_face(
     return max(faces, key=lambda f: f.area())
 
 
+def load_raster_faces(
+    path: Union[str, Path],
+    scale: float = 1.0,
+    invert: bool = False,
+    fit_tolerance: float = 0.6,
+):
+    """Raster input together with the fit quality of every recovered primitive.
+
+    ``load_faces`` drops the fit reports because most callers only want the
+    geometry, but a number recovered from pixels is not the same kind of
+    number as one read out of a DXF, and anything that intends to *quote*
+    against it needs to know which it is holding. See
+    :mod:`blueprint23d.certificates`.
+    """
+    return _load_raster_faces(
+        Path(path), scale=scale, invert=invert, fit_tolerance=fit_tolerance
+    )
+
+
 def _load_raster_faces(
     path: Path,
     scale: float,
     invert: bool,
     fit_tolerance: float,
-) -> List[Face2D]:
+) -> Tuple[List[Face2D], List]:
     """Trace a raster drawing and fit exact primitives to each contour.
 
     Contour topology comes from OpenCV, which is reliable at finding what
     encloses what; the geometry comes from sub-pixel refinement and
     least-squares fitting, which is what beats the pixel grid. Nesting then
     goes through the same parity rule as every other input.
+
+    Returns the nested faces and the flat list of
+    :class:`~blueprint23d.fitting.FitReport` for every primitive fitted.
     """
     import cv2
     import numpy as np
@@ -133,6 +158,7 @@ def _load_raster_faces(
     height = image.shape[0]
 
     loops = []
+    reports = []
     for contour in contours:
         if cv2.contourArea(contour) < 25.0:
             continue
@@ -143,12 +169,15 @@ def _load_raster_faces(
         # Pixel space to drawing space: flip the row axis so "up" is +y.
         world = [(x * scale, (height - y) * scale) for x, y in refined]
         try:
-            loop, _ = loop_from_points(world, tolerance=fit_tolerance * scale, min_arc_points=8)
+            loop, fits = loop_from_points(
+                world, tolerance=fit_tolerance * scale, min_arc_points=8
+            )
         except (ValueError, RuntimeError):
             continue
         loops.append(loop)
+        reports.extend(fits)
 
-    return nest_loops(loops)
+    return nest_loops(loops), reports
 
 
 # Backwards-compatible alias for the older polygon-based pipeline.
