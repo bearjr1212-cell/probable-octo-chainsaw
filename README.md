@@ -427,6 +427,51 @@ cheap: plasma is the fastest and least expensive machine on the list and
 cannot make this part. A comparison that ranked on cost alone would not be
 merely unhelpful — it would be a quote somebody sends.
 
+**Nesting** (`nesting.py`) supplies the other half of a price. On a
+production job the material is frequently the larger half, and a quote
+built on cut time alone is wrong in the expensive direction, because the
+sheet is bought whole whether or not the parts use it.
+
+Full nesting is a hard combinatorial problem and this does not pretend to
+solve it. It brackets the answer: a **grid estimate** that is an
+achievable lower bound — the layout it counts is one you could run — and
+an **area bound** nothing can beat, since parts cannot overlap. The gap
+between them is the headroom a real nesting package has to work in, and it
+is large exactly when the part is concave.
+
+The lower bound is better than rows of bounding boxes, because a bounding
+box is a terrible model of a triangle. Rows may interlock: the row above
+can be shifted sideways and turned end for end, and the two gaps in the
+alternating pattern are allowed to *differ* — a triangle sits almost on
+top of its twin and then the next pair clears the full height. One uniform
+pitch would throw away half the sheet on precisely the parts where nesting
+has most to give. The result is that a right triangle nests at exactly the
+utilisation of its bounding rectangle, which is the layout it really has.
+
+Two constraints keep the bound a bound. A row is a periodic *train* of
+parts, so a shift is checked against the neighbours on either side as well
+as the part directly opposite — otherwise a row of discs shifted by nearly
+a full pitch lands on the next disc along, and the estimate silently
+claims more area in parts than the sheet has. And a part is treated as
+solid between the lowest and highest material in each column, so a C-shape
+packs as though its mouth were filled: that can only under-count.
+
+```console
+$ blueprint23d quote --input bracket.dxf --thickness 6 --sheet-cost 180 --nesting
+  ...
+  cost               3.67  machine, for one
+  material           1.07  (168 per sheet at 180)
+  each at 100        1.78
+
+sheet 3000 × 1500, 10 margin, 1.4 between parts
+  168 per sheet in 12 rows at 121.4 pitch (plain grid)
+  utilisation   89.3 %
+  area bound   184 -- no nesting can beat this
+```
+
+Without a sheet price nothing is guessed: the material line is simply
+absent.
+
 **DWG** input (`parsers/dwg.py`) goes through LibreDWG's `dwg2dxf` or the
 ODA File Converter, whichever is on `PATH`. The converter is *invoked*, not
 linked — the GPL boundary is a process boundary, and the module docstring
@@ -471,6 +516,7 @@ blueprint23d diff      --before FILE --after FILE [--layer NAME] [--json]
 blueprint23d certify   --input FILE [--depth D] [--tolerance T] [--json] [-v]
 
 blueprint23d quote     --input FILE --thickness T [--process NAME] [--quantity N]
+                       [--sheet-cost C] [--nesting]
                        [--compare [--processes NAME ...]] [--layer NAME] [--json]
 ```
 
@@ -552,6 +598,7 @@ if result.solid:                   # present only on the exact path
 | `revisions.py` | feature-by-feature comparison of two revisions |
 | `certificates.py` | what each number is worth; fingerprints; determinism |
 | `processes.py` | cutting processes, manufacturability rules, cut economics |
+| `nesting.py` | sheet yield, bracketed between achievable and conceivable |
 
 ## Development
 
@@ -563,7 +610,7 @@ pip install -e ".[dev,occt]"   # adds the OpenCASCADE cross-validation
 pytest
 ```
 
-400 tests, 14 of which need OpenCASCADE and skip without it. They are
+427 tests, 14 of which need OpenCASCADE and skip without it. They are
 written to check *exactness and conservation* rather than appearance:
 predicate signs against rational ground truth, measured deviation against
 proven bounds, triangulated area against analytic area, recovered radii

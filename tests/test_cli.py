@@ -300,3 +300,19 @@ def test_check_without_a_process_says_nothing_about_manufacturability(tmp_path, 
     path = qa_plate(tmp_path, "nomfg.dxf")
     assert main(["check", "--input", str(path), "--no-audit"]) == 0
     assert "HOLE_TOO_SMALL" not in capsys.readouterr().out
+
+
+def test_quote_can_cost_material_and_show_the_nesting(tmp_path, capsys):
+    path = qa_plate(tmp_path, "nest.dxf")
+    assert main(["quote", "--input", str(path), "--thickness", "6",
+                 "--sheet-cost", "180", "--nesting"]) == 0
+    out = capsys.readouterr().out
+    assert "material" in out
+    assert "per sheet" in out
+    assert "area bound" in out
+
+
+def test_quote_without_a_sheet_price_costs_no_material(tmp_path, capsys):
+    path = qa_plate(tmp_path, "nomat.dxf")
+    assert main(["quote", "--input", str(path), "--thickness", "6"]) == 0
+    assert "material" not in capsys.readouterr().out

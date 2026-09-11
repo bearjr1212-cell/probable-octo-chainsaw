@@ -686,6 +686,11 @@ class Quote:
     setup_seconds: float
     part_area: float
     blank_area: float
+    #: Parts per sheet, from :mod:`blueprint23d.nesting`. Zero when nesting
+    #: was not asked for, in which case material is not costed at all
+    #: rather than guessed.
+    per_sheet: int = 0
+    sheet_cost: float = 0.0
 
     @property
     def cycle_seconds(self) -> float:
@@ -705,6 +710,21 @@ class Quote:
         """Part area over the blank it has to come out of."""
         return self.part_area / self.blank_area if self.blank_area else 0.0
 
+    @property
+    def material_cost(self) -> float:
+        """Sheet price divided by the sheet's yield.
+
+        The offcut is bought too, so a part that nests badly carries the
+        scrap it creates. Zero when no nesting estimate was supplied.
+        """
+        if self.per_sheet <= 0 or not self.sheet_cost:
+            return 0.0
+        return self.sheet_cost / self.per_sheet
+
+    @property
+    def total_cost(self) -> float:
+        return self.machine_cost + self.material_cost
+
     def batch_seconds(self, quantity: int) -> float:
         """Setup once, cycle ``quantity`` times -- which is the whole
         reason a quote of one is never a tenth of a quote of ten."""
@@ -714,7 +734,8 @@ class Quote:
         return self.batch_seconds(quantity) / 3600.0 * self.process.machine_rate
 
     def unit_cost(self, quantity: int) -> float:
-        return self.batch_cost(quantity) / max(1, quantity)
+        """Machine time per part at this batch size, plus material."""
+        return self.batch_cost(quantity) / max(1, quantity) + self.material_cost
 
     def describe(self) -> str:
         return "\n".join(
@@ -730,9 +751,17 @@ class Quote:
                 f"  setup        {self.setup_seconds:10.1f} s",
                 f"  cycle        {self.cycle_seconds:10.1f} s per part",
                 f"  utilisation  {self.utilisation * 100:9.1f} %  of the blank",
-                f"  cost         {self.machine_cost:10.2f}  for one, "
-                f"{self.unit_cost(100):.2f} each at 100",
+                f"  cost         {self.machine_cost:10.2f}  machine, for one",
             ]
+            + (
+                [
+                    f"  material     {self.material_cost:10.2f}  "
+                    f"({self.per_sheet} per sheet at {self.sheet_cost:g})"
+                ]
+                if self.material_cost
+                else []
+            )
+            + [f"  each at 100  {self.unit_cost(100):10.2f}"]
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -753,16 +782,31 @@ class Quote:
             "part_area": self.part_area,
             "blank_area": self.blank_area,
             "utilisation": self.utilisation,
+            "per_sheet": self.per_sheet,
             "cost": {
-                "one": self.machine_cost,
+                "machine": self.machine_cost,
+                "material": self.material_cost,
+                "one": self.total_cost,
                 "each_at_10": self.unit_cost(10),
                 "each_at_100": self.unit_cost(100),
             },
         }
 
 
-def quote(face: Face2D, proc: Process, thickness: float) -> Quote:
-    """Cost one part on one machine."""
+def quote(
+    face: Face2D,
+    proc: Process,
+    thickness: float,
+    sheet_cost: float = 0.0,
+    per_sheet: Optional[int] = None,
+) -> Quote:
+    """Cost one part on one machine.
+
+    Supply ``sheet_cost`` to have material costed as well; the sheet's
+    yield is estimated by :mod:`blueprint23d.nesting` unless ``per_sheet``
+    is given. Without a sheet price nothing is guessed -- the material line
+    is simply absent.
+    """
     loops = list(face.loops())
     cut_length = sum(loop.length() for loop in loops)
     starts = [loop.curves[0].start for loop in loops if loop.curves]
@@ -770,6 +814,11 @@ def quote(face: Face2D, proc: Process, thickness: float) -> Quote:
 
     x0, y0, x1, y1 = face.bounds()
     blank = (x1 - x0) * (y1 - y0)
+
+    if per_sheet is None and sheet_cost:
+        from .nesting import estimate_for
+
+        per_sheet = estimate_for(face, proc).per_sheet
 
     return Quote(
         process=proc,
@@ -783,6 +832,8 @@ def quote(face: Face2D, proc: Process, thickness: float) -> Quote:
         setup_seconds=proc.setup_seconds,
         part_area=face.area(),
         blank_area=blank,
+        per_sheet=per_sheet or 0,
+        sheet_cost=sheet_cost,
     )
 
 
@@ -820,6 +871,7 @@ def quote_drawing(
     process_name: str,
     thickness: float,
     layer: Optional[str] = None,
+    sheet_cost: float = 0.0,
 ) -> Tuple[Optional[Quote], Report]:
     """Read a drawing, check it, and cost it."""
     from .loaders import load_faces
@@ -838,4 +890,4 @@ def quote_drawing(
 
     face = max(faces, key=lambda f: f.area())
     check_manufacturability(face, proc, thickness, report=report)
-    return quote(face, proc, thickness), report
+    return quote(face, proc, thickness, sheet_cost=sheet_cost), report

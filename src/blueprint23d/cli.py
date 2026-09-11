@@ -329,7 +329,8 @@ def cmd_quote(args: argparse.Namespace) -> int:
         return 0 if results and results[0][1].cuttable else NOT_CUTTABLE
 
     estimate, report = processes.quote_drawing(
-        args.input, args.process, args.thickness, layer=args.layer
+        args.input, args.process, args.thickness, layer=args.layer,
+        sheet_cost=args.sheet_cost,
     )
     if estimate is None:
         print(report.describe(), file=sys.stderr)
@@ -341,6 +342,14 @@ def cmd_quote(args: argparse.Namespace) -> int:
         print(json.dumps({"quote": estimate.to_dict(), "report": report.to_dict()}, indent=2))
     else:
         print(estimate.describe())
+        if args.nesting:
+            from . import nesting
+            from .loaders import load_faces
+
+            faces, _ = load_faces(args.input, layer=args.layer)
+            part = max(faces, key=lambda f: f.area())
+            print()
+            print(nesting.estimate_for(part, processes.process(args.process)).describe())
         if args.quantity > 1:
             print(
                 f"  batch        {estimate.batch_seconds(args.quantity) / 60:10.1f} min "
@@ -483,6 +492,10 @@ def build_parser() -> argparse.ArgumentParser:
                          help="Quote every process, producible ones first")
     p_quote.add_argument("--processes", nargs="*", default=None, metavar="NAME",
                          help="Limit --compare to these processes")
+    p_quote.add_argument("--sheet-cost", dest="sheet_cost", type=float, default=0.0,
+                         help="Price of one sheet; without it material is not costed")
+    p_quote.add_argument("--nesting", action="store_true",
+                         help="Also show how many parts a sheet yields")
     p_quote.add_argument("--json", action="store_true", help="Machine-readable output")
     p_quote.set_defaults(func=cmd_quote)
 

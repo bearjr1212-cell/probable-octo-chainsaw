@@ -46,6 +46,7 @@ from .diagnostics import Code, Defect, Report, Severity
 from .exact import BACKEND as PREDICATE_BACKEND
 from .loaders import load_face, load_faces
 from .multiview import Reconstruction, ViewSpec, reconstruct
+from .nesting import NestingEstimate, estimate_for as estimate_nesting
 from .processes import (
     PROCESSES,
     Process,
@@ -123,6 +124,8 @@ __all__ = [
     "quote_drawing",
     "compare",
     "check_manufacturability",
+    "estimate_nesting",
+    "NestingEstimate",
     # revision comparison
     "diff_drawings",
     "diff_faces",
