@@ -17,7 +17,7 @@ from .curves import Curve2D
 from .geometry import DEFAULT_TOLERANCE
 
 RASTER_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
-VECTOR_EXTENSIONS = {".dxf", ".svg"}
+VECTOR_EXTENSIONS = {".dxf", ".svg", ".dwg"}
 
 
 def supported_extensions() -> List[str]:
@@ -51,6 +51,16 @@ def load_faces(
         from .parsers import svg_exact
 
         return svg_exact.load_faces(path, weld_tolerance=weld_tolerance)
+
+    if extension == ".dwg":
+        # DWG needs an external converter; whatever that costs is reported
+        # rather than silently absorbed.
+        from .parsers import dwg as dwg_parser
+
+        faces, open_chains, _report = dwg_parser.load_faces(
+            path, layer=layer, weld_tolerance=weld_tolerance
+        )
+        return faces, open_chains
 
     if extension in RASTER_EXTENSIONS:
         return _load_raster_faces(path, scale=scale, invert=invert, fit_tolerance=fit_tolerance), []
