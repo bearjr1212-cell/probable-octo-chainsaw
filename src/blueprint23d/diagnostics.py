@@ -93,6 +93,7 @@ class Code(str, Enum):
     PART_EXCEEDS_SHEET = "PART_EXCEEDS_SHEET"
     BEND_RELIEF_MISSING = "BEND_RELIEF_MISSING"
     BEND_RADIUS_TOO_SMALL = "BEND_RADIUS_TOO_SMALL"
+    THICKNESS_EXCEEDS_PROCESS = "THICKNESS_EXCEEDS_PROCESS"
 
     # --- drawing consistency -----------------------------------------
     DIMENSION_MISMATCH = "DIMENSION_MISMATCH"
@@ -134,6 +135,7 @@ REMEDIES: Dict[Code, str] = {
     Code.CONVERTER_UNAVAILABLE: "Install a DWG converter: LibreDWG (dwg2dxf) or the ODA File Converter, and make sure it is on PATH.",
     Code.CONVERSION_FAILED: "The DWG could not be converted. Try re-saving it from your CAD package, or export DXF directly.",
     Code.CONVERSION_METADATA_LOST: "Layer names did not survive DWG conversion, so layer filters will not match. Select geometry another way, or supply DXF directly.",
+    Code.THICKNESS_EXCEEDS_PROCESS: "Choose a process that will cut this section, or split the part.",
     Code.FEATURE_ADDED: "This feature is new in the later revision. Confirm it was intended before re-running an existing program.",
     Code.FEATURE_REMOVED: "This feature is gone in the later revision. Any tooling, fixture, or program step for it is now stale.",
     Code.FEATURE_CHANGED: "This feature moved or changed size between revisions. Re-check the program, not just the drawing.",

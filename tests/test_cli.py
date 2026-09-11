@@ -262,3 +262,41 @@ def test_certify_json_carries_the_fingerprint_and_every_basis(tmp_path, capsys):
     assert len(payload["fingerprint"]) == 64
     assert payload["exact"] is True
     assert {m["basis"] for m in payload["measurements"]} <= {"exact", "bounded", "estimated"}
+
+
+def test_quote_costs_a_part_on_a_named_process(tmp_path, capsys):
+    path = qa_plate(tmp_path, "quote.dxf")
+    assert main(["quote", "--input", str(path), "--thickness", "6"]) == 0
+    out = capsys.readouterr().out
+    assert "cut length" in out
+    assert "pierces" in out
+    assert "READY TO CUT" in out
+
+
+def test_quote_exits_two_when_the_machine_cannot_make_the_part(tmp_path, capsys):
+    """Ø5 through 6 mm plate is a laser hole and not a plasma one."""
+    path = qa_plate(tmp_path, "plasma.dxf", radius=2.5)
+    assert main(["quote", "--input", str(path), "--thickness", "6",
+                 "--process", "plasma"]) == 2
+    assert "HOLE_TOO_SMALL_FOR_THICKNESS" in capsys.readouterr().out
+
+
+def test_quote_compare_ranks_producible_before_cheap(tmp_path, capsys):
+    path = qa_plate(tmp_path, "compare.dxf")
+    assert main(["quote", "--input", str(path), "--thickness", "6", "--compare"]) == 0
+    lines = [l for l in capsys.readouterr().out.splitlines() if l.strip()][1:]
+    assert "OK" in lines[0]
+    assert any("blocker" in l for l in lines)
+
+
+def test_check_can_also_judge_manufacturability(tmp_path, capsys):
+    path = qa_plate(tmp_path, "mfg.dxf", radius=2.5)
+    assert main(["check", "--input", str(path), "--no-audit",
+                 "--process", "plasma", "--thickness", "6"]) == 2
+    assert "HOLE_TOO_SMALL_FOR_THICKNESS" in capsys.readouterr().out
+
+
+def test_check_without_a_process_says_nothing_about_manufacturability(tmp_path, capsys):
+    path = qa_plate(tmp_path, "nomfg.dxf")
+    assert main(["check", "--input", str(path), "--no-audit"]) == 0
+    assert "HOLE_TOO_SMALL" not in capsys.readouterr().out

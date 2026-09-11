@@ -231,6 +231,18 @@ def cmd_check(args: argparse.Namespace) -> int:
         if not args.no_audit:
             findings, audit_report = audit.audit_drawing(path, layer=args.layer)
             report = diagnostics.merge(report, audit_report)
+
+    if args.process and args.thickness is not None and faces:
+        from . import processes
+
+        part = max(faces, key=lambda f: f.area())
+        report = diagnostics.merge(
+            report,
+            processes.check_manufacturability(
+                part, processes.process(args.process), args.thickness
+            ),
+        )
+
     report.source = str(path)
 
     if args.json:
@@ -285,6 +297,59 @@ def cmd_diff(args: argparse.Namespace) -> int:
     # revision that changed something is not a failure, but a script
     # waiting on "is this the part we already quoted?" needs to hear it.
     return 0 if diff.identical else DIFFERENCES_FOUND
+
+
+def cmd_quote(args: argparse.Namespace) -> int:
+    """Can this machine make the part, and what does the cut cost?"""
+    from . import processes
+
+    if args.compare:
+        from .loaders import load_faces
+
+        faces, _ = load_faces(args.input, layer=args.layer)
+        if not faces:
+            print("error: no closed profile to cut", file=sys.stderr)
+            return 1
+        face = max(faces, key=lambda f: f.area())
+        results = processes.compare(face, args.thickness, args.processes or ())
+        if args.json:
+            import json
+
+            print(
+                json.dumps(
+                    [
+                        {"quote": q.to_dict(), "report": r.to_dict()}
+                        for q, r in results
+                    ],
+                    indent=2,
+                )
+            )
+        else:
+            print(processes.describe_comparison(results, quantity=args.quantity))
+        return 0 if results and results[0][1].cuttable else NOT_CUTTABLE
+
+    estimate, report = processes.quote_drawing(
+        args.input, args.process, args.thickness, layer=args.layer
+    )
+    if estimate is None:
+        print(report.describe(), file=sys.stderr)
+        return 1
+
+    if args.json:
+        import json
+
+        print(json.dumps({"quote": estimate.to_dict(), "report": report.to_dict()}, indent=2))
+    else:
+        print(estimate.describe())
+        if args.quantity > 1:
+            print(
+                f"  batch        {estimate.batch_seconds(args.quantity) / 60:10.1f} min "
+                f"for {args.quantity}, {estimate.unit_cost(args.quantity):.2f} each"
+            )
+        print()
+        print(report.describe())
+
+    return 0 if report.cuttable else NOT_CUTTABLE
 
 
 def cmd_certify(args: argparse.Namespace) -> int:
@@ -368,6 +433,10 @@ def build_parser() -> argparse.ArgumentParser:
                          help="Skip the dimension-versus-geometry cross-check")
     p_check.add_argument("--verbose", "-v", action="store_true",
                          help="List every dimension that was checked")
+    p_check.add_argument("--process", default=None,
+                         help="Also check manufacturability on this process")
+    p_check.add_argument("--thickness", type=float, default=None,
+                         help="Material thickness; required with --process")
     p_check.set_defaults(func=cmd_check)
 
     p_diff = sub.add_parser("diff", help="Compare two revisions feature by feature")
@@ -396,6 +465,26 @@ def build_parser() -> argparse.ArgumentParser:
     p_certify.add_argument("--verbose", "-v", action="store_true",
                            help="Certify every feature, not just the first twelve")
     p_certify.set_defaults(func=cmd_certify)
+
+    from .processes import PROCESSES
+
+    p_quote = sub.add_parser(
+        "quote", help="Can this machine make the part, and what does the cut cost?"
+    )
+    p_quote.add_argument("--input", required=True, help="Blueprint file")
+    p_quote.add_argument("--layer", default=None, help="DXF layer to read")
+    p_quote.add_argument("--process", default="fiber_laser", choices=sorted(PROCESSES),
+                         help="Cutting process (default fiber_laser)")
+    p_quote.add_argument("--thickness", type=float, required=True,
+                         help="Material thickness, in drawing units")
+    p_quote.add_argument("--quantity", type=int, default=1,
+                         help="Batch size; setup is charged once (default 1)")
+    p_quote.add_argument("--compare", action="store_true",
+                         help="Quote every process, producible ones first")
+    p_quote.add_argument("--processes", nargs="*", default=None, metavar="NAME",
+                         help="Limit --compare to these processes")
+    p_quote.add_argument("--json", action="store_true", help="Machine-readable output")
+    p_quote.set_defaults(func=cmd_quote)
 
     return parser
 

@@ -383,6 +383,50 @@ between runs, because the header timestamp is the only part of the file
 that is not a function of the geometry. A test runs the pipeline in two
 fresh interpreters under different `PYTHONHASHSEED` values and compares.
 
+**Processes** (`processes.py`) settle what the rest of this can only
+describe. A drawing is not manufacturable in the abstract, it is
+manufacturable on a *machine*: Ø6 through 6 mm plate is a routine laser
+hole and a plasma arc closes it on pierce. So every rule takes a process
+and a thickness, and the thresholds are ratios of the thickness, the way
+shop rules are actually stated.
+
+Six profiles ship — fibre and CO₂ laser, plasma, waterjet, router, wire
+EDM — and every number in them is a rule of thumb, not a measurement of
+anyone's machine. `Process.but(kerf=0.12, machine_rate=140)` replaces what
+you know and keeps the rest. Feed rate is a power law `C/tᵇ` fitted to
+published cutting charts, because thermal cutting charts are near-straight
+on log-log axes and two points fix the curve; wire EDM is an area rate
+(mm²/min of cut face) and routing adds a pass every few millimetres, since
+neither is a thermal power law.
+
+The rules are the ones that actually stop jobs — a feature narrower than
+the kerf, a hole small relative to thickness, a web that will burn
+through, an internal corner sharper than the cutter, a part that does not
+fit the sheet. Every geometric measurement behind them is a **conservative
+lower bound**: the tessellation's proven deviation is subtracted, so the
+answer can raise an extra flag on a marginal feature and cannot miss one
+the cutter genuinely will not fit.
+
+Then the economics — cut length exact (arcs have closed-form length), one
+pierce per loop, a nearest-neighbour rapid tour, setup charged once so a
+hundred parts are not a hundred times one:
+
+```console
+$ blueprint23d quote --input bracket.dxf --thickness 6 --compare --quantity 50
+process                                cycle      each  verdict
+fibre laser (3 kW, mild steel)         27.0s      0.73  OK
+CO₂ laser (4 kW, mild steel)           33.5s      0.86  OK
+abrasive waterjet                     199.6s      6.21  OK
+wire EDM (0.25 mm wire)              1977.1s     77.59  OK
+plasma (100 A, mild steel)             20.7s      0.37  3 blocker(s): HOLE_TOO_SMALL_FOR_THICKNESS
+CNC router (6 mm cutter, aluminium)     49.9s      1.09  3 blocker(s): HOLE_TOO_SMALL_FOR_THICKNESS
+```
+
+That is the whole point of the exercise, and why producible sorts ahead of
+cheap: plasma is the fastest and least expensive machine on the list and
+cannot make this part. A comparison that ranked on cost alone would not be
+merely unhelpful — it would be a quote somebody sends.
+
 **DWG** input (`parsers/dwg.py`) goes through LibreDWG's `dwg2dxf` or the
 ODA File Converter, whichever is on `PATH`. The converter is *invoked*, not
 linked — the GPL boundary is a process boundary, and the module docstring
@@ -419,11 +463,15 @@ blueprint23d multiview --top FILE --front FILE --output OUT [--tolerance T]
 blueprint23d inspect   --input FILE [-v] [--layer NAME] [--tolerance T]
 
 blueprint23d check     --input FILE [--layer NAME] [--json] [--no-audit] [-v]
+                       [--process NAME --thickness T]
 
 blueprint23d diff      --before FILE --after FILE [--layer NAME] [--json]
                        [--revision-before R] [--revision-after R] [--changes-only]
 
 blueprint23d certify   --input FILE [--depth D] [--tolerance T] [--json] [-v]
+
+blueprint23d quote     --input FILE --thickness T [--process NAME] [--quantity N]
+                       [--compare [--processes NAME ...]] [--layer NAME] [--json]
 ```
 
 `inspect` reports curve types and radii, whether each area came from the
@@ -448,7 +496,9 @@ customer.dxf: NOT CUTTABLE AS SUPPLIED
 ```
 
 `certify` prints what every number is worth and the part's fingerprint,
-exiting `2` if any feature could not be resolved above the noise.
+exiting `2` if any feature could not be resolved above the noise. `quote`
+costs the cut and says whether the machine can make it; `check --process`
+adds the same manufacturability rules to the intake pass.
 
 `--json` on any of them gives the same content as a machine-readable report.
 
@@ -501,6 +551,7 @@ if result.solid:                   # present only on the exact path
 | `audit.py` | the drawing checked against its own geometry |
 | `revisions.py` | feature-by-feature comparison of two revisions |
 | `certificates.py` | what each number is worth; fingerprints; determinism |
+| `processes.py` | cutting processes, manufacturability rules, cut economics |
 
 ## Development
 
@@ -512,7 +563,7 @@ pip install -e ".[dev,occt]"   # adds the OpenCASCADE cross-validation
 pytest
 ```
 
-359 tests, 14 of which need OpenCASCADE and skip without it. They are
+400 tests, 14 of which need OpenCASCADE and skip without it. They are
 written to check *exactness and conservation* rather than appearance:
 predicate signs against rational ground truth, measured deviation against
 proven bounds, triangulated area against analytic area, recovered radii

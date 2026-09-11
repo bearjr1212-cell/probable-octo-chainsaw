@@ -46,6 +46,16 @@ from .diagnostics import Code, Defect, Report, Severity
 from .exact import BACKEND as PREDICATE_BACKEND
 from .loaders import load_face, load_faces
 from .multiview import Reconstruction, ViewSpec, reconstruct
+from .processes import (
+    PROCESSES,
+    Process,
+    Quote,
+    check_manufacturability,
+    compare,
+    process,
+    quote,
+    quote_drawing,
+)
 from .revisions import Change, Diff, Feature, diff_drawings, diff_faces
 from .step_writer import validate_step, write_step
 from .tessellate import MeshCertificate, TriangleMesh, tessellate_extrusion
@@ -104,6 +114,15 @@ __all__ = [
     "Measurement",
     "face_fingerprint",
     "drawing_fingerprint",
+    # processes and cost
+    "PROCESSES",
+    "Process",
+    "Quote",
+    "process",
+    "quote",
+    "quote_drawing",
+    "compare",
+    "check_manufacturability",
     # revision comparison
     "diff_drawings",
     "diff_faces",
