@@ -42,8 +42,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from pathlib import Path
-from typing import List, Optional, Sequence, Tuple, Union
+from typing import List, Optional, Sequence, Tuple
 
 import numpy as np
 

@@ -120,7 +120,7 @@ def test_rejects_bad_depth():
 
 
 def test_mesh_exports_to_trimesh_without_reprocessing():
-    trimesh = pytest.importorskip("trimesh")
+    pytest.importorskip("trimesh")
     mesh = tessellate_extrusion(plate_with_hole(), 4.0, tolerance=1e-3)
     tm = mesh.to_trimesh()
     assert tm.is_watertight

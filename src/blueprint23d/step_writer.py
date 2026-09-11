@@ -46,7 +46,6 @@ from .brep import (
     Edge3,
     EdgeLoop,
     EmbeddedCurve3,
-    Face3,
     Line3,
     LinearExtrusionSurface,
     PlaneSurface,
