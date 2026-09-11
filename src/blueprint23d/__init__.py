@@ -30,11 +30,18 @@ from .curves import (
     Line2D,
     NurbsCurve2D,
 )
+# Deliberately not re-exporting ``audit.audit`` at the package root: the
+# name would shadow the ``blueprint23d.audit`` submodule itself.
+from .audit import Finding, audit_drawing
+from .diagnostics import Code, Defect, Report, Severity
 from .exact import BACKEND as PREDICATE_BACKEND
 from .loaders import load_face, load_faces
 from .multiview import Reconstruction, ViewSpec, reconstruct
+from .revisions import Change, Diff, Feature, diff_drawings, diff_faces
 from .step_writer import validate_step, write_step
 from .tessellate import MeshCertificate, TriangleMesh, tessellate_extrusion
+from .units import Unit, infer_from_dxf
+from .validate import validate_curves, validate_drawing, validate_face
 
 __all__ = [
     # reading
@@ -68,6 +75,24 @@ __all__ = [
     "tessellate_extrusion",
     "TriangleMesh",
     "MeshCertificate",
+    # intake QA
+    "Report",
+    "Defect",
+    "Code",
+    "Severity",
+    "validate_drawing",
+    "validate_face",
+    "validate_curves",
+    "Unit",
+    "infer_from_dxf",
+    "audit_drawing",
+    "Finding",
+    # revision comparison
+    "diff_drawings",
+    "diff_faces",
+    "Diff",
+    "Change",
+    "Feature",
     # diagnostics
     "PREDICATE_BACKEND",
 ]

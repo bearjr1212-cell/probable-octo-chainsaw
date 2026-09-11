@@ -6,15 +6,12 @@ job is correct, and the part comes out the wrong size. These tests build
 drawings that lie in each of the ways a real one does.
 """
 
-import math
-
 import ezdxf
 import pytest
 
 from blueprint23d import audit
 from blueprint23d.annotations import Dimension
-from blueprint23d.brep import Face2D, Loop2D
-from blueprint23d.curves import Arc2D, Line2D
+from blueprint23d.curves import Arc2D
 from blueprint23d.diagnostics import Code, Severity
 
 

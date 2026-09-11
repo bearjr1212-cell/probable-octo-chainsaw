@@ -143,3 +143,102 @@ def test_stepped_reconstruction_writes_a_mesh(tmp_path):
     out = tmp_path / "stepped.stl"
     assert main(["multiview", "--top", str(top), "--front", str(front), "--output", str(out)]) == 0
     assert out.exists()
+
+
+# --------------------------------------------------------------------------
+# Intake QA at the command line
+# --------------------------------------------------------------------------
+
+
+def qa_plate(tmp_path, name, *, x1=100.0, radius=3.175, dim_text=None, insunits=4):
+    doc = ezdxf.new(setup=True)
+    doc.header["$INSUNITS"] = insunits
+    msp = doc.modelspace()
+    msp.add_lwpolyline([(0, 0), (x1, 0), (x1, 60), (0, 60)], close=True)
+    msp.add_circle((25, 30), radius)
+    kwargs = dict(center=(25, 30), radius=radius, angle=45)
+    if dim_text is not None:
+        kwargs["text"] = dim_text
+    msp.add_diameter_dim(**kwargs).render()
+    path = tmp_path / name
+    doc.saveas(path)
+    return path
+
+
+def test_check_passes_a_clean_drawing(tmp_path, capsys):
+    path = qa_plate(tmp_path, "clean.dxf")
+    assert main(["check", "--input", str(path)]) == 0
+    out = capsys.readouterr().out
+    assert "READY TO CUT" in out
+    assert "mm" in out  # the units it decided on, and why
+
+
+def test_check_exits_two_when_the_drawing_contradicts_itself(tmp_path, capsys):
+    """A distinct exit code, so an intake script can tell "bad drawing"
+    from "the tool fell over"."""
+    path = qa_plate(tmp_path, "liar.dxf", radius=3.15, dim_text="12.70")
+    assert main(["check", "--input", str(path)]) == 2
+    assert "DIMENSION_MISMATCH" in capsys.readouterr().out
+
+
+def test_check_emits_json_on_request(tmp_path, capsys):
+    import json
+
+    path = qa_plate(tmp_path, "json.dxf")
+    assert main(["check", "--input", str(path), "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["cuttable"] is True
+    assert payload["metrics"]["holes"] == 1
+
+
+def test_check_can_skip_the_audit(tmp_path, capsys):
+    path = qa_plate(tmp_path, "skip.dxf", radius=3.15, dim_text="12.70")
+    assert main(["check", "--input", str(path), "--no-audit"]) == 0
+    assert "DIMENSION_MISMATCH" not in capsys.readouterr().out
+
+
+def test_check_reports_a_missing_file_rather_than_crashing(tmp_path, capsys):
+    assert main(["check", "--input", str(tmp_path / "nope.dxf")]) == 2
+    assert "NOT CUTTABLE" in capsys.readouterr().out
+
+
+def test_diff_names_the_feature_that_changed(tmp_path, capsys):
+    before = qa_plate(tmp_path, "revB.dxf", radius=3.175)
+    after = qa_plate(tmp_path, "revC.dxf", radius=3.25)
+    assert main(["diff", "--before", str(before), "--after", str(after)]) == 2
+    out = capsys.readouterr().out
+    assert "revB → revC" in out
+    assert "Ø6.35 → Ø6.5" in out
+    assert "changed" in out
+
+
+def test_diff_of_identical_files_is_clean(tmp_path, capsys):
+    before = qa_plate(tmp_path, "a.dxf")
+    after = qa_plate(tmp_path, "b.dxf")
+    assert main(["diff", "--before", str(before), "--after", str(after)]) == 0
+    assert "identical" in capsys.readouterr().out
+
+
+def test_diff_flags_two_files_claiming_the_same_revision(tmp_path, capsys):
+    before = qa_plate(tmp_path, "customer.dxf", radius=3.175)
+    after = qa_plate(tmp_path, "engineering.dxf", radius=3.25)
+    assert main(["diff", "--before", str(before), "--after", str(after),
+                 "--revision-before", "C", "--revision-after", "C"]) == 2
+    assert "REVISION_UNDOCUMENTED" in capsys.readouterr().out
+
+
+def test_diff_json_carries_both_the_changes_and_the_report(tmp_path, capsys):
+    import json
+
+    before = qa_plate(tmp_path, "j1.dxf", radius=3.175)
+    after = qa_plate(tmp_path, "j2.dxf", radius=3.25)
+    main(["diff", "--before", str(before), "--after", str(after), "--json"])
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["identical"] is False
+    assert payload["counts"]["changed"] == 1
+    assert payload["report"]["defects"]
+
+
+def test_diff_reports_an_unreadable_file_as_a_failure(tmp_path, capsys):
+    assert main(["diff", "--before", str(tmp_path / "a.dxf"),
+                 "--after", str(tmp_path / "b.dxf")]) == 1

@@ -255,6 +255,87 @@ that doesn't try:
 
 ---
 
+## Reading a drawing you did not draw
+
+Everything above assumes the file is correct. Files that arrive from
+customers are frequently not, and the failures are quiet ones — a contour
+that misses closing by 0.13 mm, two entities lying on top of each other, a
+header that says inches over geometry drawn in millimetres. Nothing looks
+wrong, every step of the job is right, and the part comes out wrong.
+
+So the package reports rather than raises. Every check returns a
+[`Report`](src/blueprint23d/diagnostics.py) of `Defect`s carrying a stable
+code, a location in drawing coordinates *and* the source entity handle, the
+actual numbers, and a remedy written for whoever has to fix it.
+
+**Units** (`units.py`) are inferred from four independent signals — the
+`$INSUNITS` header, the ratio between what dimensions say and what they
+span, whether the overall size is plausible, and whether coordinates land
+on round metric or round imperial steps — and reported with a confidence
+that accounts for how much evidence there actually was. One weak signal
+agreeing with itself is 100% of the evidence and nothing like certainty, so
+the confidence is `agreement × saturation`, and a lone plausibility guess
+comes out under 60% and asks a human.
+
+The valuable case is contradiction: geometry spanning 101.6 against a
+dimension reading 4.00 is a ratio of 25.4, which is not noise. It is a
+drawing carrying two unit systems, and it is how a part gets cut 25× wrong.
+
+**Topology** (`validate.py`) finds open contours (with the gap measured and
+located), self-intersections (at the crossing point, decided with the exact
+`orient2d` predicate, so a tessellated circle's cocircular samples are not
+a false positive), and duplicate or partially overlapping edges — collinear
+overlap is tested exactly, and the shared length is reported exactly,
+including for concentric arcs.
+
+**The drawing against itself** (`audit.py`) is the check nothing else does.
+A dimension makes a claim; the geometry makes another; inside a live CAD
+model they cannot disagree because one is derived from the other, but an
+exported file has lost that link. Definition points are snapped onto real
+curves and re-measured there. A hole labelled `Ø12.70` whose arc measures
+`Ø12.60` is a quarter-inch drill that will not fit.
+
+Radial dimensions are matched to arcs **by position, never by radius** —
+matching on radius would assume the answer and could never detect a
+disagreement. And a dimension that no longer touches the part is not
+quietly trusted: the detachment distance is measured and reported, because
+a dimension floating 3 mm off the edge is one the geometry was edited out
+from under.
+
+**Revisions** (`revisions.py`) answers what the revision note refuses to.
+Features are paired by position, again never by size, and a pairing is only
+made when it is obvious: two features match when they are each other's
+nearest candidate and closer than the features themselves are spaced. A
+hole that moved further than its neighbours are apart is genuinely
+indistinguishable from one deleted and another added, so it is reported
+that way rather than guessed at.
+
+Because geometry here is held exactly, *unchanged means unchanged* — a
+bit-identical description, canonicalised over where the loop starts, which
+way it runs, and what angle a full circle begins at. Nothing is "within an
+epsilon somebody picked". Which is why a circle re-exported as a 64-segment
+polyline is not reported as unchanged: it is reported as a hole that became
+a cutout, one edge that became sixty-four, and a fraction of a square
+millimetre smaller.
+
+```console
+$ blueprint23d diff --before revB.dxf --after revC.dxf
+revB → revC
+  hole (25, 30)                     Ø6.35 → Ø6.5                      changed
+  slot (80, 15)                     new                               added
+  outer profile (50, 30)                                              unchanged
+  hole (60, 45)                                                       unchanged
+```
+
+**DWG** input (`parsers/dwg.py`) goes through LibreDWG's `dwg2dxf` or the
+ODA File Converter, whichever is on `PATH`. The converter is *invoked*, not
+linked — the GPL boundary is a process boundary, and the module docstring
+says why. Layer names do not survive LibreDWG conversion, so a layer filter
+silently matching nothing is reported as `CONVERSION_METADATA_LOST` rather
+than left to be discovered downstream.
+
+---
+
 ## Install
 
 ```console
@@ -280,11 +361,35 @@ blueprint23d multiview --top FILE --front FILE --output OUT [--tolerance T]
                        [--top-layer L] [--front-layer L]
 
 blueprint23d inspect   --input FILE [-v] [--layer NAME] [--tolerance T]
+
+blueprint23d check     --input FILE [--layer NAME] [--json] [--no-audit] [-v]
+
+blueprint23d diff      --before FILE --after FILE [--layer NAME] [--json]
+                       [--revision-before R] [--revision-after R] [--changes-only]
 ```
 
 `inspect` reports curve types and radii, whether each area came from the
 closed-form integral or quadrature, and which chains failed to close —
 use it to debug a drawing before building anything from it.
+
+`check` runs the whole intake pass: units, topology, and the drawing
+against its own dimensions. `diff` compares two revisions feature by
+feature. Both exit `0` on a clean result, `2` on "we read it fine and it is
+not what you want" (not cuttable; the revisions differ), and `1` only when
+something genuinely failed — so they drop straight into an intake script:
+
+```console
+$ blueprint23d check --input customer.dxf
+units: mm (confidence 74%)
+  header: mm (weight 3.00) — $INSUNITS=4
+  size: mm (weight 1.20) — 100 units is 100.0 mm in mm, a plausible part size
+customer.dxf: NOT CUTTABLE AS SUPPLIED
+  1 error
+  [ERROR] DIMENSION_MISMATCH: drawing calls this diameter 12.7 but the geometry
+          measures 12.6 (off by -0.1)  at (27.298, 32.298) layer 0 entity #8C
+```
+
+`--json` on either gives the same content as a machine-readable report.
 
 ## Library
 
@@ -327,6 +432,13 @@ if result.solid:                   # present only on the exact path
 | `fitting.py` + `_native/fitkernels.c` | sub-pixel edges, TLS lines, Taubin+GN circles |
 | `step_writer.py` | STEP AP214 output and structural validation |
 | `parsers/dxf_exact.py`, `parsers/svg_exact.py` | readers that preserve geometry |
+| `parsers/dwg.py` | DWG via LibreDWG / ODA, invoked as a subprocess |
+| `diagnostics.py` | stable defect codes, locations, measurements, remedies |
+| `units.py` | unit inference from four signals, with honest confidence |
+| `validate.py` | open contours, self-intersections, duplicate and overlapping edges |
+| `annotations.py` | dimension entities and their overridden text |
+| `audit.py` | the drawing checked against its own geometry |
+| `revisions.py` | feature-by-feature comparison of two revisions |
 
 ## Development
 
@@ -335,8 +447,14 @@ pip install -e ".[dev]"
 pytest
 ```
 
-207 tests. They are written to check *exactness and conservation* rather
+307 tests. They are written to check *exactness and conservation* rather
 than appearance: predicate signs against rational ground truth, measured
 deviation against proven bounds, triangulated area against analytic area,
 recovered radii against rendered shapes, and convergence *rates* against
 their theoretical exponents.
+
+The intake-QA tests are written the other way round — each one builds a
+drawing that lies in a specific way a real one does (a contour 0.13 mm
+short of closing, text typed over a dimension, a part narrowed with the
+dimension left behind, geometry in millimetres dimensioned in inches) and
+checks that the defect is named, located and measured, not merely noticed.

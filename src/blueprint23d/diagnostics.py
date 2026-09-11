@@ -99,6 +99,13 @@ class Code(str, Enum):
     DIMENSION_UNMATCHED = "DIMENSION_UNMATCHED"
     ANNOTATION_ON_GEOMETRY_LAYER = "ANNOTATION_ON_GEOMETRY_LAYER"
 
+    # --- revision comparison -----------------------------------------
+    FEATURE_ADDED = "FEATURE_ADDED"
+    FEATURE_REMOVED = "FEATURE_REMOVED"
+    FEATURE_CHANGED = "FEATURE_CHANGED"
+    REVISION_AMBIGUOUS = "REVISION_AMBIGUOUS"
+    REVISION_UNDOCUMENTED = "REVISION_UNDOCUMENTED"
+
     # --- reconstruction confidence -----------------------------------
     FEATURE_UNRESOLVABLE = "FEATURE_UNRESOLVABLE"
     FIT_RESIDUAL_HIGH = "FIT_RESIDUAL_HIGH"
@@ -127,6 +134,11 @@ REMEDIES: Dict[Code, str] = {
     Code.CONVERTER_UNAVAILABLE: "Install a DWG converter: LibreDWG (dwg2dxf) or the ODA File Converter, and make sure it is on PATH.",
     Code.CONVERSION_FAILED: "The DWG could not be converted. Try re-saving it from your CAD package, or export DXF directly.",
     Code.CONVERSION_METADATA_LOST: "Layer names did not survive DWG conversion, so layer filters will not match. Select geometry another way, or supply DXF directly.",
+    Code.FEATURE_ADDED: "This feature is new in the later revision. Confirm it was intended before re-running an existing program.",
+    Code.FEATURE_REMOVED: "This feature is gone in the later revision. Any tooling, fixture, or program step for it is now stale.",
+    Code.FEATURE_CHANGED: "This feature moved or changed size between revisions. Re-check the program, not just the drawing.",
+    Code.REVISION_AMBIGUOUS: "Two features sit close enough that it is not certain which one became which. Confirm by hand before trusting the comparison.",
+    Code.REVISION_UNDOCUMENTED: "Geometry changed but the revision note does not say so. Ask the customer which change is authoritative.",
 }
 
 

@@ -16,6 +16,13 @@ Examples::
     blueprint23d extrude --input plate.dxf --depth 8 --output plate.stl --tolerance 1e-4
     blueprint23d multiview --top top.dxf --front front.dxf --output part.step
     blueprint23d inspect --input plate.dxf
+    blueprint23d check --input plate.dxf
+    blueprint23d diff --before revB.dxf --after revC.dxf
+
+``check`` exits ``0`` when the drawing passes, ``2`` when something
+blocking was found, and ``1`` only on a real failure; ``diff`` exits ``0``
+when the two revisions are the same part and ``2`` when they are not. Both
+can be dropped straight into an intake script.
 """
 
 from __future__ import annotations
@@ -27,6 +34,7 @@ from typing import List, Optional
 
 from .brep import extrude_face
 from .curves import Arc2D, BezierCurve2D, EllipseArc2D, Line2D, NurbsCurve2D
+from .diagnostics import Severity
 from .loaders import load_face, load_faces
 from .multiview import ViewSpec, reconstruct
 from .step_writer import validate_step, write_step
@@ -195,6 +203,90 @@ def cmd_inspect(args: argparse.Namespace) -> int:
     return 0
 
 
+#: Exit code for "we read it fine, and it is not fit to cut".
+NOT_CUTTABLE = 2
+
+#: Same code from ``diff``, meaning "the two revisions are not the same part".
+DIFFERENCES_FOUND = 2
+
+#: Formats that carry a units header and dimension entities.
+ANNOTATED_SUFFIXES = {".dxf", ".dwg"}
+
+
+def cmd_check(args: argparse.Namespace) -> int:
+    """Everything an intake desk needs to know about one file."""
+    from . import audit, diagnostics, units, validate
+
+    path = Path(args.input)
+    faces, report = validate.validate_drawing(path, layer=args.layer)
+
+    inference = None
+    findings: List = []
+    if path.suffix.lower() in ANNOTATED_SUFFIXES and path.exists():
+        try:
+            inference = units.infer_from_dxf(path)
+            report = diagnostics.merge(report, units.report_units(inference))
+        except Exception as exc:  # a units guess is never worth failing over
+            print(f"note: units could not be inferred ({exc})", file=sys.stderr)
+        if not args.no_audit:
+            findings, audit_report = audit.audit_drawing(path, layer=args.layer)
+            report = diagnostics.merge(report, audit_report)
+    report.source = str(path)
+
+    if args.json:
+        print(report.to_json())
+    else:
+        if inference is not None:
+            print(inference.describe())
+        print(report.describe())
+        if args.verbose and findings:
+            print(audit.describe_findings(findings))
+
+    return 0 if report.cuttable else NOT_CUTTABLE
+
+
+def cmd_diff(args: argparse.Namespace) -> int:
+    """What changed between two revisions of the same part."""
+    from . import revisions
+
+    diff = revisions.diff_drawings(
+        args.before,
+        args.after,
+        layer=args.layer,
+        revision_before=args.revision_before,
+        revision_after=args.revision_after,
+    )
+
+    if args.json:
+        payload = diff.to_dict()
+        payload["report"] = diff.report.to_dict()
+        import json
+
+        print(json.dumps(payload, indent=2))
+    else:
+        print(diff.describe(include_unchanged=not args.changes_only))
+        # The per-feature defects are the table above; anything else the
+        # comparison turned up is said once, here.
+        from .diagnostics import Code as _Code
+
+        inline = {
+            _Code.FEATURE_ADDED,
+            _Code.FEATURE_REMOVED,
+            _Code.FEATURE_CHANGED,
+            _Code.REVISION_AMBIGUOUS,
+        }
+        for defect in diff.report.sorted_defects():
+            if defect.code not in inline:
+                print("  " + defect.describe())
+
+    if diff.report.at_least(Severity.CRITICAL):
+        return 1
+    # Like ``diff`` itself: nothing to report is 0, differences are 2. A
+    # revision that changed something is not a failure, but a script
+    # waiting on "is this the part we already quoted?" needs to hear it.
+    return 0 if diff.identical else DIFFERENCES_FOUND
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="blueprint23d",
@@ -241,6 +333,31 @@ def build_parser() -> argparse.ArgumentParser:
     p_inspect.add_argument("--tolerance", type=float, default=1e-3, help="Tolerance to report bounds at")
     p_inspect.add_argument("--verbose", "-v", action="store_true", help="List every curve")
     p_inspect.set_defaults(func=cmd_inspect)
+
+    p_check = sub.add_parser(
+        "check", help="Intake QA: units, topology, and whether the drawing agrees with itself"
+    )
+    p_check.add_argument("--input", required=True, help="Blueprint file")
+    p_check.add_argument("--layer", default=None, help="DXF layer to read")
+    p_check.add_argument("--json", action="store_true", help="Machine-readable report")
+    p_check.add_argument("--no-audit", dest="no_audit", action="store_true",
+                         help="Skip the dimension-versus-geometry cross-check")
+    p_check.add_argument("--verbose", "-v", action="store_true",
+                         help="List every dimension that was checked")
+    p_check.set_defaults(func=cmd_check)
+
+    p_diff = sub.add_parser("diff", help="Compare two revisions feature by feature")
+    p_diff.add_argument("--before", required=True, help="The earlier drawing")
+    p_diff.add_argument("--after", required=True, help="The later drawing")
+    p_diff.add_argument("--layer", default=None, help="DXF layer to read in both files")
+    p_diff.add_argument("--revision-before", dest="revision_before", default=None,
+                        help="Revision letter written on the earlier print")
+    p_diff.add_argument("--revision-after", dest="revision_after", default=None,
+                        help="Revision letter written on the later print")
+    p_diff.add_argument("--changes-only", dest="changes_only", action="store_true",
+                        help="Hide features that did not change")
+    p_diff.add_argument("--json", action="store_true", help="Machine-readable report")
+    p_diff.set_defaults(func=cmd_diff)
 
     return parser
 
