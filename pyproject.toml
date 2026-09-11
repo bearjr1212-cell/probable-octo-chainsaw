@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "blueprint23d"
-version = "0.1.0"
+version = "0.2.0"
 description = "Turn 2D blueprints (DXF/SVG/raster) into 3D printable/machinable parts"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -23,6 +23,10 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=7.0"]
+# OpenCASCADE, used only by tests/test_occt_roundtrip.py to open the STEP
+# files this package writes with an independent CAD kernel. Large, and not
+# needed to use the package -- the test module skips without it.
+occt = ["cadquery-ocp>=7.7"]
 
 [project.scripts]
 blueprint23d = "blueprint23d.cli:main"

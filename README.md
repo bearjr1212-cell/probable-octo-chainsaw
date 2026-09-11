@@ -244,12 +244,18 @@ that doesn't try:
   averages down.
 - **A stepped reconstruction is not exact CAD** and the tool refuses to
   write one as STEP rather than passing it off.
-- **No CAD kernel was available to open the STEP output here.** Validity is
-  established structurally — every reference resolves, no duplicate ids,
-  required AP214 scaffolding present, shell references only faces, every
-  face has a surface and a bound — and the validator is itself tested
-  against deliberately corrupted files. That is not the same as a
-  round-trip through SolidWorks.
+- **The STEP output is cross-validated against OpenCASCADE, not against
+  SolidWorks.** `tests/test_occt_roundtrip.py` hands every emitted file to
+  OCCT and checks that it parses, that `BRepCheck_Analyzer` calls the solid
+  valid, that the kernel's integrated volume matches the closed-form volume
+  to ~1e-12 relative, and that a bore comes back as a `GeomAbs_Cylinder`
+  whose radius compares *exactly equal* to the nominal. On top of that the
+  writer is validated structurally — every reference resolves, no duplicate
+  ids, required AP214 scaffolding present, shell references only faces,
+  every face has a surface and a bound — with the validator itself tested
+  against deliberately corrupted files. OCCT is the kernel behind FreeCAD
+  and a great deal of commercial CAD, which is strong evidence and still
+  not a round-trip through every seat the file might land in.
 - **Bézier/NURBS areas** fall back to Gauss-Legendre quadrature;
   `is_area_exact()` tells you which path was taken.
 
@@ -445,13 +451,17 @@ if result.solid:                   # present only on the exact path
 ```console
 pip install -e ".[dev]"
 pytest
+
+pip install -e ".[dev,occt]"   # adds the OpenCASCADE cross-validation
+pytest
 ```
 
-307 tests. They are written to check *exactness and conservation* rather
-than appearance: predicate signs against rational ground truth, measured
-deviation against proven bounds, triangulated area against analytic area,
-recovered radii against rendered shapes, and convergence *rates* against
-their theoretical exponents.
+321 tests, 14 of which need OpenCASCADE and skip without it. They are
+written to check *exactness and conservation* rather than appearance:
+predicate signs against rational ground truth, measured deviation against
+proven bounds, triangulated area against analytic area, recovered radii
+against rendered shapes, and convergence *rates* against their theoretical
+exponents.
 
 The intake-QA tests are written the other way round — each one builds a
 drawing that lies in a specific way a real one does (a contour 0.13 mm
