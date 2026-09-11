@@ -361,6 +361,63 @@ def cmd_quote(args: argparse.Namespace) -> int:
     return 0 if report.cuttable else NOT_CUTTABLE
 
 
+def cmd_bend(args: argparse.Namespace) -> int:
+    """Flat pattern from finished dimensions, or a check of a bent part."""
+    import math as _math
+
+    from . import sheetmetal
+
+    try:
+        mat = sheetmetal.material(args.material)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    if args.flanges:
+        angles = args.angles or [90.0] * (len(args.flanges) - 1)
+        if len(angles) != len(args.flanges) - 1:
+            print(
+                f"error: {len(args.flanges)} flanges need {len(args.flanges) - 1} "
+                f"angles, got {len(angles)}",
+                file=sys.stderr,
+            )
+            return 1
+        bends = [
+            sheetmetal.Bend(_math.radians(angle), args.radius) for angle in angles
+        ]
+        try:
+            pattern = sheetmetal.flat_pattern(args.flanges, bends, args.thickness, mat)
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+
+        if args.json:
+            import json
+
+            print(json.dumps(pattern.to_dict(), indent=2))
+        else:
+            print(pattern.describe())
+        return 0
+
+    if not args.input:
+        print("error: give either --flanges or --input", file=sys.stderr)
+        return 1
+
+    bends, report = sheetmetal.check_drawing(
+        args.input, thickness=args.thickness, material_name=args.material,
+        layer=args.layer, bend_layer=args.bend_layer,
+    )
+    if args.json:
+        print(report.to_json())
+    else:
+        for index, bend in enumerate(bends, 1):
+            print(f"bend {index}: {bend.describe(args.thickness, mat)}")
+        if bends:
+            print()
+        print(report.describe())
+    return 0 if report.cuttable else NOT_CUTTABLE
+
+
 def cmd_certify(args: argparse.Namespace) -> int:
     """What every reported number is worth, and the fingerprint of the part."""
     from . import certificates
@@ -499,11 +556,38 @@ def build_parser() -> argparse.ArgumentParser:
     p_quote.add_argument("--json", action="store_true", help="Machine-readable output")
     p_quote.set_defaults(func=cmd_quote)
 
+    from .sheetmetal import MATERIALS
+
+    p_bend = sub.add_parser(
+        "bend", help="Flat pattern for a folded part, or a check of a bent one"
+    )
+    p_bend.add_argument("--thickness", type=float, required=True, help="Sheet thickness")
+    p_bend.add_argument("--material", default="mild_steel", choices=sorted(MATERIALS),
+                        help="Sheet material (default mild_steel)")
+    p_bend.add_argument("--flanges", type=float, nargs="+", default=None, metavar="L",
+                        help="Finished outside flange lengths, in order")
+    p_bend.add_argument("--angles", type=float, nargs="+", default=None, metavar="DEG",
+                        help="Bend angles in degrees, one fewer than flanges (default 90)")
+    p_bend.add_argument("--radius", type=float, default=None,
+                        help="Inside bend radius (default: one thickness)")
+    p_bend.add_argument("--input", default=None,
+                        help="Flat pattern to check, with bend lines on a BEND layer")
+    p_bend.add_argument("--layer", default=None, help="DXF layer holding the profile")
+    p_bend.add_argument("--bend-layer", dest="bend_layer", default="BEND",
+                        help="Layer-name prefix for bend lines (default BEND)")
+    p_bend.add_argument("--json", action="store_true", help="Machine-readable output")
+    p_bend.set_defaults(func=cmd_bend)
+
     return parser
 
 
 def main(argv: Optional[List[str]] = None) -> int:
     args = build_parser().parse_args(argv)
+    if getattr(args, "radius", None) is None and hasattr(args, "thickness"):
+        # A bend radius defaults to one thickness, which is the usual air
+        # bend and the minimum for mild steel.
+        if args.command == "bend":
+            args.radius = args.thickness
     try:
         return args.func(args)
     except (ValueError, FileNotFoundError, RuntimeError, NotImplementedError) as exc:

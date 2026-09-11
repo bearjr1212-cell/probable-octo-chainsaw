@@ -58,6 +58,15 @@ from .processes import (
     quote_drawing,
 )
 from .revisions import Change, Diff, Feature, diff_drawings, diff_faces
+from .sheetmetal import (
+    Bend,
+    FlatPattern,
+    Material,
+    bend_deduction,
+    check_sheet_metal,
+    flat_pattern,
+    k_factor,
+)
 from .step_writer import validate_step, write_step
 from .tessellate import MeshCertificate, TriangleMesh, tessellate_extrusion
 from .units import Unit, infer_from_dxf
@@ -126,6 +135,14 @@ __all__ = [
     "check_manufacturability",
     "estimate_nesting",
     "NestingEstimate",
+    # sheet metal
+    "Bend",
+    "FlatPattern",
+    "Material",
+    "flat_pattern",
+    "k_factor",
+    "bend_deduction",
+    "check_sheet_metal",
     # revision comparison
     "diff_drawings",
     "diff_faces",

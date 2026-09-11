@@ -316,3 +316,46 @@ def test_quote_without_a_sheet_price_costs_no_material(tmp_path, capsys):
     path = qa_plate(tmp_path, "nomat.dxf")
     assert main(["quote", "--input", str(path), "--thickness", "6"]) == 0
     assert "material" not in capsys.readouterr().out
+
+
+def test_bend_computes_a_flat_pattern_from_finished_dimensions(tmp_path, capsys):
+    assert main(["bend", "--thickness", "2", "--flanges", "50", "30", "50"]) == 0
+    out = capsys.readouterr().out
+    assert "50 + 30 + 50 = 130 outside" in out
+    assert "blank" in out
+    assert "shortfall" in out
+
+
+def test_bend_defaults_the_radius_to_one_thickness(tmp_path, capsys):
+    main(["bend", "--thickness", "3", "--flanges", "50", "50", "--json"])
+    import json
+
+    payload = json.loads(capsys.readouterr().out)
+    # R = T = 3 puts R/T at 1, the clamped floor of the DIN correction.
+    assert payload["k_factors"][0] == pytest.approx(0.325)
+
+
+def test_bend_refuses_a_flange_and_angle_count_that_disagree(tmp_path, capsys):
+    assert main(["bend", "--thickness", "2", "--flanges", "50", "30", "50",
+                 "--angles", "90"]) == 1
+    assert "angles" in capsys.readouterr().err
+
+
+def test_bend_checks_a_drawing_with_bend_lines(tmp_path, capsys):
+    doc = ezdxf.new(setup=True)
+    msp = doc.modelspace()
+    msp.add_lwpolyline([(0, 0), (200, 0), (200, 100), (0, 100)], close=True)
+    msp.add_circle((104, 50), 3.0)
+    msp.add_line((100, 0), (100, 100), dxfattribs={"layer": "BEND_UP_90_R2"})
+    path = tmp_path / "folded.dxf"
+    doc.saveas(path)
+
+    assert main(["bend", "--thickness", "2", "--input", str(path)]) == 2
+    out = capsys.readouterr().out
+    assert "90° up at R2" in out
+    assert "HOLE_NEAR_BEND" in out
+
+
+def test_bend_needs_something_to_work_on(capsys):
+    assert main(["bend", "--thickness", "2"]) == 1
+    assert "--flanges" in capsys.readouterr().err

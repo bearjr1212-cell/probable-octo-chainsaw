@@ -472,6 +472,57 @@ sheet 3000 × 1500, 10 margin, 1.4 between parts
 Without a sheet price nothing is guessed: the material line is simply
 absent.
 
+**Sheet metal** (`sheetmetal.py`) answers why a folded part comes out the
+wrong size. A bracket is drawn by its finished dimensions — 50 up, 30
+across, 50 down — and cut from a blank that is *shorter* than 130, because
+bending consumes material. On 2 mm stock with two 90° bends it is about
+7 mm short, which is far outside any tolerance anybody quotes.
+
+The number that decides it is the **K-factor**: where through the
+thickness the neutral axis sits. Material outside it stretches, material
+inside compresses, and only the neutral line keeps its length. K is not a
+constant — it moves outward as the bend gets gentler, because a generous
+radius strains the section less. Instead of the usual three-row lookup
+(0.33 tight / 0.41 medium / 0.45 generous) this uses the **DIN 6935**
+correction, which is continuous and is what that table rounds:
+
+```
+k = 0.65 + 0.5·log₁₀(R/T),  clamped to [0.65, 1.0]      K = k/2 ∈ [0.325, 0.5]
+
+BA   = θ·(R + K·T)              arc of the neutral line
+OSSB = tan(θ/2)·(R + T)         apex to tangent point
+BD   = 2·OSSB − BA              what the blank is short by, per bend
+```
+
+The bounds are physical, not fudged: 0.5 is the geometric middle of the
+section, which no amount of radius can pass, and 0.325 is the tightest
+practical bend. Everything uncertain sits in K, so K is reported rather
+than buried:
+
+```console
+$ blueprint23d bend --thickness 2 --flanges 50 30 50 --radius 2
+mild steel at 2 thick
+  flanges      50 + 30 + 50 = 130 outside
+  bend 1       −3.837  (K=0.325)
+  bend 2       −3.837  (K=0.325)
+  blank        122.3
+  shortfall    7.675  cut this and it fits
+```
+
+Then the four rules that stop a press brake: a radius below the material's
+minimum (the outside of the bend is in tension and cracks — 6061-T6 wants
+3×t where 5052 wants 1×t, same drawing, different answer), a missing
+relief where a bend runs out at an edge, a flange too short for the brake
+to hold, and a hole inside `2.5×t + R` of the bend, which draws into an
+oval. Bend lines are read from a DXF by layer-name convention
+(`BEND_DOWN_45_R3`), since DXF has no bend entity.
+
+Relief detection is the one heuristic here and is labelled as such: a
+relief is a notch, and a notch is a departure from a straight edge, so the
+boundary near where the bend runs out is tested for straightness. It
+cannot tell a relief from any other notch, and errs toward believing one
+exists rather than calling a real one missing.
+
 **DWG** input (`parsers/dwg.py`) goes through LibreDWG's `dwg2dxf` or the
 ODA File Converter, whichever is on `PATH`. The converter is *invoked*, not
 linked — the GPL boundary is a process boundary, and the module docstring
@@ -514,6 +565,10 @@ blueprint23d diff      --before FILE --after FILE [--layer NAME] [--json]
                        [--revision-before R] [--revision-after R] [--changes-only]
 
 blueprint23d certify   --input FILE [--depth D] [--tolerance T] [--json] [-v]
+
+blueprint23d bend      --thickness T [--material NAME]
+                       [--flanges L ... [--angles DEG ...] [--radius R]]
+                       [--input FILE [--bend-layer PREFIX]] [--json]
 
 blueprint23d quote     --input FILE --thickness T [--process NAME] [--quantity N]
                        [--sheet-cost C] [--nesting]
@@ -599,6 +654,7 @@ if result.solid:                   # present only on the exact path
 | `certificates.py` | what each number is worth; fingerprints; determinism |
 | `processes.py` | cutting processes, manufacturability rules, cut economics |
 | `nesting.py` | sheet yield, bracketed between achievable and conceivable |
+| `sheetmetal.py` | K-factor, bend allowance, flat pattern, press-brake rules |
 
 ## Development
 
@@ -610,7 +666,7 @@ pip install -e ".[dev,occt]"   # adds the OpenCASCADE cross-validation
 pytest
 ```
 
-427 tests, 14 of which need OpenCASCADE and skip without it. They are
+469 tests, 14 of which need OpenCASCADE and skip without it. They are
 written to check *exactness and conservation* rather than appearance:
 predicate signs against rational ground truth, measured deviation against
 proven bounds, triangulated area against analytic area, recovered radii
