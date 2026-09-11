@@ -107,18 +107,50 @@ def _bilinear(image: np.ndarray, xs: np.ndarray, ys: np.ndarray) -> np.ndarray:
     )
 
 
-def refine_subpixel(gray: np.ndarray, points: Sequence[Point2]) -> List[Point2]:
+#: How far along the normal to look for the gradient ridge, in pixels.
+#:
+#: It has to cover the distance between where the contour *starts* and
+#: where the edge actually is. ``findContours`` returns the centres of the
+#: outermost ink pixels, which sit about half a pixel inside the true
+#: boundary, and the Gaussian used for the gradient spreads the ridge a
+#: little further. Two pixels covers both with room to spare; going wider
+#: only risks finding a neighbouring edge on a thin feature.
+DEFAULT_SEARCH = 2.0
+
+
+def refine_subpixel(
+    gray: np.ndarray, points: Sequence[Point2], search: float = DEFAULT_SEARCH
+) -> List[Point2]:
     """Move each contour point onto the true gradient ridge, to sub-pixel accuracy.
 
-    The gradient magnitude peaks at the edge. Sampling it at the point and
-    one pixel either side along the gradient normal gives three values
-    whose parabola has its vertex at
+    For an area-sampled (anti-aliased) edge the intensity crosses its
+    midpoint exactly at the geometric boundary, and blurring does not move
+    that, so the gradient magnitude peaks *on* the edge. Finding that peak
+    to sub-pixel accuracy is the whole job.
+
+    Two steps, and the first one is the one that matters:
+
+    **Walk to the peak.** The gradient magnitude is sampled at whole-pixel
+    steps along the normal across ``±search``, and the largest interior
+    sample is taken as the ridge. Skipping this and interpolating around
+    the starting point instead is the obvious implementation and it is
+    subtly, systematically wrong: ``findContours`` hands back the centres
+    of boundary *pixels*, about half a pixel inside the edge, so the
+    parabola's vertex frequently lands beyond the half-pixel where a
+    three-sample fit is valid. Rejecting those (the only safe thing to do
+    with them) leaves precisely the points that needed moving most sitting
+    where they started, and the recovered contour comes out a third of a
+    pixel small -- a bias no amount of averaging removes, because every
+    point is displaced the same way.
+
+    **Interpolate.** A parabola through the peak sample and its two
+    neighbours has its vertex at
 
     .. math:: \\delta = \\frac{g_- - g_+}{2\\,(g_- - 2 g_0 + g_+)}
 
-    which is the sub-pixel offset. Offsets outside half a pixel, or a
-    degenerate (non-peaked) triple, mean the model does not hold there, so
-    the original point is kept rather than moved somewhere arbitrary.
+    which is the remaining sub-pixel offset. A degenerate (non-peaked)
+    triple means the model does not hold there, and the sample stays at
+    the integer peak rather than moving somewhere arbitrary.
     """
     import cv2
 
@@ -141,19 +173,27 @@ def refine_subpixel(gray: np.ndarray, points: Sequence[Point2]) -> List[Point2]:
     nx = np.where(valid, gxi / np.where(valid, norm, 1.0), 0.0)
     ny = np.where(valid, gyi / np.where(valid, norm, 1.0), 0.0)
 
-    g0 = _bilinear(magnitude, xs, ys)
-    gm = _bilinear(magnitude, xs - nx, ys - ny)
-    gp = _bilinear(magnitude, xs + nx, ys + ny)
+    steps = np.arange(-math.ceil(search), math.ceil(search) + 1, 1.0)
+    profile = np.stack(
+        [_bilinear(magnitude, xs + t * nx, ys + t * ny) for t in steps]
+    )  # (steps, points)
+
+    # The peak has to have a neighbour on each side for the parabola, so
+    # the ends of the window are not candidates.
+    peak = np.argmax(profile[1:-1], axis=0) + 1
+    index = np.arange(pts.shape[0])
+    g0 = profile[peak, index]
+    gm = profile[peak - 1, index]
+    gp = profile[peak + 1, index]
 
     denom = gm - 2.0 * g0 + gp
     with np.errstate(divide="ignore", invalid="ignore"):
-        offset = np.where(np.abs(denom) > 1e-12, 0.5 * (gm - gp) / denom, 0.0)
-    offset = np.where(np.isfinite(offset), offset, 0.0)
-    # A vertex further than half a pixel away means the peak is not in this
-    # sample triple at all; trust the integer position instead.
-    offset = np.where(np.abs(offset) <= 0.5, offset, 0.0)
-    offset = np.where(valid & (denom < 0), offset, 0.0)  # require a maximum
+        delta = np.where(np.abs(denom) > 1e-12, 0.5 * (gm - gp) / denom, 0.0)
+    delta = np.where(np.isfinite(delta), delta, 0.0)
+    delta = np.where(np.abs(delta) <= 0.5, delta, 0.0)
+    delta = np.where(denom < 0, delta, 0.0)  # a maximum, not a minimum
 
+    offset = np.where(valid, steps[peak] + delta, 0.0)
     return list(zip(xs + offset * nx, ys + offset * ny))
 
 

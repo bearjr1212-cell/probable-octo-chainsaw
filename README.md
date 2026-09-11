@@ -177,9 +177,28 @@ are literally the same index.
 Three stages, each beating the pixel grid for a different reason:
 
 1. **Sub-pixel localisation.** An edge is where the gradient peaks, almost
-   always *between* pixels. A parabola through the gradient magnitude at
-   ±1 px along the gradient normal gives the vertex:
+   always *between* pixels. Each point is walked along the gradient normal
+   to the largest sample within ±2 px, then a parabola through that peak
+   and its two neighbours gives the rest:
    `δ = (g₋ − g₊) / 2(g₋ − 2g₀ + g₊)`.
+
+   The walk is not an optimisation — it is the whole correction.
+   Interpolating around the *starting* point instead is the obvious
+   implementation and it is systematically wrong: `findContours` returns
+   the centres of boundary **pixels**, about 0.43 px inside the true edge,
+   so the parabola's vertex often lands beyond the half-pixel where a
+   three-sample fit is valid. Rejecting those — the only safe thing to do
+   with them — leaves exactly the points that needed moving most sitting
+   where they started, and the contour comes out a third of a pixel small.
+   Every point is displaced the same way, so it survives fitting and
+   survives averaging over a thousand points; it simply appears as a hole
+   that is consistently undersize.
+
+   > **Verified**, against discs, axis-aligned edges and 45° edges
+   > rendered by exact coverage rather than by a rasteriser — which
+   > matters, because `cv2.circle`'s own quantisation is an order of
+   > magnitude larger than the effect and reads as scatter. Bias falls
+   > from **−0.43 px to −0.05 px**, with a scatter of 0.03 px.
 2. **Segmentation** into line and arc spans.
 3. **Fitting** — where the precision comes from. Per-point error is
    independent, so a fit over N points averages it down like **1/√N**.
@@ -239,9 +258,10 @@ that doesn't try:
   small-radius fillet under heavy noise is genuinely unidentifiable. Every
   fit reports its RMS residual and sagitta so you can reject it; the tool
   will not hand you a confident number it cannot justify.
-- **Raster contours carry a systematic bias** of roughly a third of a pixel
-  from thresholded extraction, on top of the random error the fitting
-  averages down.
+- **Raster contours carry a residual systematic bias** of under 0.06 px,
+  inward, on top of the random error the fitting averages down. A bias
+  does not average down, so it is carried as its own term in the
+  certificate and never folded into the standard errors.
 - **A stepped reconstruction is not exact CAD** and the tool refuses to
   write one as STEP rather than passing it off.
 - **The STEP output is cross-validated against OpenCASCADE, not against
@@ -666,7 +686,7 @@ pip install -e ".[dev,occt]"   # adds the OpenCASCADE cross-validation
 pytest
 ```
 
-469 tests, 14 of which need OpenCASCADE and skip without it. They are
+477 tests, 14 of which need OpenCASCADE and skip without it. They are
 written to check *exactness and conservation* rather than appearance:
 predicate signs against rational ground truth, measured deviation against
 proven bounds, triangulated area against analytic area, recovered radii

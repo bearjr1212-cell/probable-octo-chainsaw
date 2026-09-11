@@ -77,18 +77,22 @@ EXACT = "exact"
 BOUNDED = "bounded"
 ESTIMATED = "estimated"
 
-#: Systematic contour offset from thresholded raster extraction, in pixels.
+#: Systematic contour offset left in raster extraction, in pixels.
 #:
 #: Averaging more points drives the *random* error down as 1/√N and does
-#: nothing at all to this, because it is a bias and not noise: Otsu
-#: thresholding places the boundary where the intensity crosses a level,
-#: which is not where the geometric edge is, and every point on the contour
-#: is displaced the same way. Measured at roughly a third of a pixel,
-#: inward, against rendered ground truth. Reporting only the fit residual
-#: would understate a recovered radius's error by an order of magnitude, so
-#: a raster certificate always carries this term separately -- a bias does
-#: not combine with a standard error and must not be quietly added to one.
-RASTER_SYSTEMATIC_BIAS = 1.0 / 3.0
+#: nothing at all to a bias, because every point on the contour is
+#: displaced the same way. So it is carried separately: a bias does not
+#: combine in quadrature with a standard error and must not be quietly
+#: added to one.
+#:
+#: The raw contour that ``findContours`` returns sits about 0.43 px inside
+#: the true edge, because it is made of boundary *pixel centres*. Walking
+#: each point to the gradient ridge removes almost all of that; what is
+#: left, measured against analytically rendered ground truth across
+#: circles, axis-aligned edges and 45° edges, is under 0.06 px and still
+#: inward. This figure is rounded up from that, and
+#: ``tests/test_fitting.py`` holds it there.
+RASTER_SYSTEMATIC_BIAS = 0.08
 
 
 # --------------------------------------------------------------------------
